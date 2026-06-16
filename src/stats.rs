@@ -1,162 +1,158 @@
-//! `stats` subcommand: parse `sccache --show-stats` output into JSON.
-
-use std::io::{self, Read};
-use std::path::PathBuf;
-use std::process::Command;
-
-use anyhow::{Context, Result, bail};
-use clap::Args;
+use anyhow::{Context, Result};
 use serde::Serialize;
 
-/// Parse sccache stats into JSON.
-#[derive(Debug, Args)]
-pub struct StatsArgs {
-    /// Read sccache stats from a file instead of running `sccache --show-stats`.
-    #[arg(long)]
-    pub fixture: Option<PathBuf>,
-
-    /// Read sccache stats from stdin.
-    #[arg(long)]
-    pub stdin: bool,
-}
-
-/// Parsed sccache statistics.
 #[derive(Debug, Serialize)]
 pub struct SccacheStats {
-    /// Number of cache hits.
     pub cache_hits: u64,
-    /// Number of cache misses.
     pub cache_misses: u64,
-    /// Hit rate in [0.0, 1.0].
     pub hit_rate: f64,
-    /// Current cache size in bytes (may be None if not reported).
-    pub cache_size: Option<u64>,
-    /// Maximum cache size in bytes (may be None if not reported).
-    pub max_size: Option<u64>,
-    /// Raw stats text for diagnostics.
-    pub raw_lines: Vec<String>,
+    pub cache_size: u64,
+    pub max_cache_size: u64,
 }
 
-/// Parse `sccache --show-stats` text output.
-///
-/// # Errors
-/// Returns an error if the text cannot be parsed into valid stats.
-pub fn parse_stats(text: &str) -> Result<SccacheStats> {
-    let mut cache_hits: u64 = 0;
-    let mut cache_misses: u64 = 0;
-    let mut cache_size: Option<u64> = None;
-    let mut max_size: Option<u64> = None;
-    let raw_lines: Vec<String> = text.lines().map(str::to_owned).collect();
-
-    for line in text.lines() {
-        let line = line.trim();
-
-        // Match "Cache hits    42" or "Cache hits (C/C++)    42"
-        if let Some(rest) = line.strip_prefix("Cache hits") {
-            // Skip sub-categories like "Cache hits (C/C++)"
-            if !rest.trim_start().starts_with('(') {
-                if let Some(n) = parse_trailing_number(rest) {
-                    cache_hits = n;
-                }
-            }
-        } else if let Some(rest) = line.strip_prefix("Cache misses") {
-            if !rest.trim_start().starts_with('(') {
-                if let Some(n) = parse_trailing_number(rest) {
-                    cache_misses = n;
-                }
-            }
-        } else if line.starts_with("Cache size") && !line.contains("max") {
-            // "Cache size                          1.00 GiB"
-            cache_size = parse_size_bytes(line);
-        } else if line.starts_with("Max cache size") {
-            max_size = parse_size_bytes(line);
-        }
-    }
+pub fn parse_stats(text: &str) -> SccacheStats {
+    let cache_hits = extract_count(text, "Cache hits").unwrap_or(0);
+    let cache_misses = extract_count(text, "Cache misses").unwrap_or(0);
+    let cache_size = extract_size_bytes(text, "Cache size").unwrap_or(0);
+    let max_cache_size = extract_size_bytes(text, "Max cache size").unwrap_or(0);
 
     let total = cache_hits + cache_misses;
-    #[allow(clippy::float_arithmetic)]
     let hit_rate = if total == 0 {
         0.0_f64
     } else {
-        cache_hits as f64 / total as f64
+        #[allow(clippy::cast_precision_loss)]
+        let r = cache_hits as f64 / total as f64;
+        r
     };
 
-    Ok(SccacheStats {
+    SccacheStats {
         cache_hits,
         cache_misses,
         hit_rate,
         cache_size,
-        max_size,
-        raw_lines,
-    })
-}
-
-fn parse_trailing_number(s: &str) -> Option<u64> {
-    s.split_whitespace().last()?.parse().ok()
-}
-
-/// Parse size strings like "1.00 GiB", "512 MiB", "20 GiB" into bytes.
-fn parse_size_bytes(line: &str) -> Option<u64> {
-    // Find the last two tokens: number + unit
-    let parts: Vec<&str> = line.split_whitespace().collect();
-    if parts.len() < 2 {
-        return None;
+        max_cache_size,
     }
-    let unit = *parts.last()?;
-    let num_str = parts.get(parts.len() - 2)?;
-    let num: f64 = num_str.parse().ok()?;
-
-    #[allow(clippy::float_arithmetic)]
-    let bytes = match unit {
-        "B" => num as u64,
-        "KiB" => (num * 1024.0) as u64,
-        "MiB" => (num * 1024.0 * 1024.0) as u64,
-        "GiB" => (num * 1024.0 * 1024.0 * 1024.0) as u64,
-        // Plain G/M/K suffixes (less common in sccache but handle gracefully)
-        "G" => (num * 1_000_000_000.0) as u64,
-        "M" => (num * 1_000_000.0) as u64,
-        "K" => (num * 1_000.0) as u64,
-        _ => return None,
-    };
-    Some(bytes)
 }
 
-/// Run the `stats` subcommand.
-///
-/// # Errors
-/// Returns an error if sccache is not installed, stats cannot be parsed, or JSON cannot be emitted.
-pub fn run(args: StatsArgs) -> Result<()> {
-    let text = if let Some(fixture_path) = args.fixture {
-        std::fs::read_to_string(&fixture_path)
-            .with_context(|| format!("reading fixture {}", fixture_path.display()))?
-    } else if args.stdin {
-        let mut buf = String::new();
-        io::stdin()
-            .read_to_string(&mut buf)
-            .context("reading stdin")?;
-        buf
+pub fn show_stats(fixture: Option<&str>) -> Result<()> {
+    let text = if let Some(path) = fixture {
+        std::fs::read_to_string(path)
+            .with_context(|| format!("reading fixture {path}"))?
     } else {
-        // Run live sccache
-        let output = Command::new("sccache")
+        let output = std::process::Command::new("sccache")
             .arg("--show-stats")
             .output()
-            .context("running `sccache --show-stats`; is sccache installed and on $PATH?")?;
-
-        if !output.status.success() {
-            bail!(
-                "`sccache --show-stats` exited {}: {}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-        String::from_utf8(output.stdout).context("sccache output is not valid UTF-8")?
+            .context("running sccache --show-stats; is sccache installed and on PATH?")?;
+        String::from_utf8_lossy(&output.stdout).into_owned()
     };
 
-    let stats = parse_stats(&text)?;
+    let stats = parse_stats(&text);
     let json = serde_json::to_string_pretty(&stats).context("serializing stats to JSON")?;
-    #[allow(clippy::print_stdout)]
-    {
-        println!("{json}");
-    }
+    println!("{json}");
     Ok(())
+}
+
+fn extract_count(text: &str, key: &str) -> Option<u64> {
+    for line in text.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 2 {
+            continue;
+        }
+        if let Ok(n) = parts.last()?.parse::<u64>() {
+            let line_key = parts[..parts.len() - 1].join(" ");
+            if line_key == key {
+                return Some(n);
+            }
+        }
+    }
+    None
+}
+
+fn extract_size_bytes(text: &str, key: &str) -> Option<u64> {
+    for line in text.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 3 {
+            continue;
+        }
+        let unit = parts[parts.len() - 1];
+        if let Ok(n) = parts[parts.len() - 2].parse::<f64>() {
+            let line_key = parts[..parts.len() - 2].join(" ");
+            if line_key == key {
+                let multiplier: f64 = match unit {
+                    "GiB" => 1024.0 * 1024.0 * 1024.0,
+                    "MiB" => 1024.0 * 1024.0,
+                    "KiB" => 1024.0,
+                    "B" => 1.0,
+                    _ => return None,
+                };
+                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+                return Some((n * multiplier) as u64);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FIXTURE: &str = r#"Compile requests                      100
+Compile requests executed              98
+Cache hits                             80
+Cache misses                           18
+Cache hits (C/C++)                      0
+Cache hits (Rust)                      80
+Cache misses (Rust)                    18
+Cache timeouts                          0
+Cache read errors                       0
+Forced recaches                         0
+Cache write errors                      0
+Compilations                            0
+Errors                                  0
+Cache location                       Local disk: "/home/user/.cache/sccache"
+Cache size                            2.1 GiB
+Max cache size                       20.0 GiB
+"#;
+
+    #[test]
+    fn test_parse_cache_hits() {
+        let stats = parse_stats(FIXTURE);
+        assert_eq!(stats.cache_hits, 80);
+    }
+
+    #[test]
+    fn test_parse_cache_misses() {
+        let stats = parse_stats(FIXTURE);
+        assert_eq!(stats.cache_misses, 18);
+    }
+
+    #[test]
+    fn test_parse_hit_rate_in_range() {
+        let stats = parse_stats(FIXTURE);
+        let expected = 80.0_f64 / 98.0_f64;
+        assert!((stats.hit_rate - expected).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_parse_cache_size() {
+        let stats = parse_stats(FIXTURE);
+        assert!(stats.cache_size > 0);
+    }
+
+    #[test]
+    fn test_parse_max_size() {
+        let stats = parse_stats(FIXTURE);
+        let expected = (20.0_f64 * 1024.0 * 1024.0 * 1024.0) as u64;
+        assert_eq!(stats.max_cache_size, expected);
+    }
+
+    #[test]
+    fn test_parse_empty_stats() {
+        let stats = parse_stats("");
+        assert_eq!(stats.cache_hits, 0);
+        assert_eq!(stats.cache_misses, 0);
+        assert_eq!(stats.cache_size, 0);
+        assert_eq!(stats.max_cache_size, 0);
+    }
 }

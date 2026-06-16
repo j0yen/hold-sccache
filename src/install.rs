@@ -1,128 +1,91 @@
-//! `install` subcommand: ensure sccache binary is present.
-
+use anyhow::{bail, Context, Result};
 use std::path::PathBuf;
 
-use anyhow::{bail, Context, Result};
-use clap::Args;
+pub fn install(local_build: bool, install_dir: Option<&str>) -> Result<()> {
+    let dir = resolve_install_dir(install_dir)?;
+    std::fs::create_dir_all(&dir).context("Failed to create install directory")?;
 
-/// Ensure sccache binary is present at ~/.local/bin/sccache.
-#[derive(Debug, Args)]
-pub struct InstallArgs {
-    /// Build sccache locally via `cargo install sccache` instead of the cloud builder.
-    /// Requires a working Rust toolchain. May take a long time.
-    #[arg(long)]
-    pub local_build: bool,
+    let dest = dir.join("sccache");
 
-    /// Destination directory for the sccache binary (default: ~/.local/bin).
-    #[arg(long)]
-    pub bin_dir: Option<PathBuf>,
-}
-
-/// Run the `install` subcommand.
-///
-/// # Errors
-/// Returns an error if sccache cannot be installed with a clear actionable message.
-pub fn run(args: InstallArgs) -> Result<()> {
-    let bin_dir = match args.bin_dir {
-        Some(p) => p,
-        None => default_bin_dir()?,
-    };
-    let sccache_bin = bin_dir.join("sccache");
-
-    // Idempotent: skip if already present and functional.
-    if sccache_bin.exists() {
-        let version_ok = std::process::Command::new(&sccache_bin)
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        if version_ok {
-            #[allow(clippy::print_stdout)]
-            {
-                println!("sccache already installed at {}", sccache_bin.display());
-            }
-            return Ok(());
-        }
-    }
-
-    // Also check $PATH for a system-installed sccache.
-    if which_on_path("sccache") {
-        #[allow(clippy::print_stdout)]
-        {
-            println!("sccache found on $PATH; skipping install");
-        }
+    if dest.exists() {
+        println!("sccache already installed at {}", dest.display());
         return Ok(());
     }
 
-    if args.local_build {
-        run_local_build(&bin_dir)
+    if local_build {
+        install_local(&dest)?;
     } else {
-        bail!(
-            "sccache is not installed and cloud build was not requested.\n\
-             \n\
-             Options:\n\
-             1. Run `hold-sccache install --local-build` to build sccache locally\n\
-                via `cargo install sccache` (requires Rust toolchain; ~5 min).\n\
-             2. Use the cloud builder: run `cloudbuild.sh up` then\n\
-                `cargo install --root ~/.local sccache` on the cloud box.\n\
-             3. Install via your package manager: `pacman -S sccache` (Arch Linux).\n\
-             \n\
-             Note: `wire` is a separate step and has NOT been run; no config was modified."
-        )
-    }
-}
-
-/// Run `cargo install sccache --root <bin_dir>`.
-///
-/// # Errors
-/// Returns an error if cargo install fails.
-fn run_local_build(bin_dir: &std::path::Path) -> Result<()> {
-    // Ensure destination exists
-    std::fs::create_dir_all(bin_dir)
-        .with_context(|| format!("creating bin dir {}", bin_dir.display()))?;
-
-    #[allow(clippy::print_stdout)]
-    {
-        println!("Building sccache locally (this may take several minutes)...");
+        install_prebuilt(&dest)?;
     }
 
-    let status = std::process::Command::new("cargo")
-        .args(["install", "sccache", "--root"])
-        .arg(bin_dir.parent().unwrap_or(bin_dir))
-        .status()
-        .context("running `cargo install sccache`; is cargo on $PATH?")?;
-
-    if !status.success() {
-        bail!(
-            "`cargo install sccache` failed (exit {status}).\n\
-             Check that your Rust toolchain is installed and `cargo` is on $PATH."
-        );
-    }
-
-    let sccache_bin = bin_dir.join("sccache");
-    #[allow(clippy::print_stdout)]
-    {
-        println!("sccache installed to {}", sccache_bin.display());
-    }
+    println!("sccache installed at {}", dest.display());
+    println!("Make sure {} is on your PATH", dir.display());
     Ok(())
 }
 
-/// Default bin directory: ~/.local/bin
-///
-/// # Errors
-/// Returns an error if $HOME is not set.
-fn default_bin_dir() -> Result<PathBuf> {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .context("$HOME not set; cannot determine default bin dir")?;
-    Ok(home.join(".local").join("bin"))
+fn resolve_install_dir(install_dir: Option<&str>) -> Result<PathBuf> {
+    if let Some(d) = install_dir {
+        return Ok(PathBuf::from(d));
+    }
+    let home = std::env::var("HOME").context("HOME not set")?;
+    Ok(PathBuf::from(home).join(".local").join("bin"))
 }
 
-/// Returns true if `name` is found anywhere on $PATH.
-fn which_on_path(name: &str) -> bool {
-    std::env::var_os("PATH")
-        .map(|path| {
-            std::env::split_paths(&path).any(|dir| dir.join(name).exists())
-        })
-        .unwrap_or(false)
+fn install_prebuilt(dest: &std::path::Path) -> Result<()> {
+    let status = std::process::Command::new("cargo")
+        .args(["install", "sccache", "--root", "/tmp/sccache-install"])
+        .status();
+
+    match status {
+        Ok(s) if s.success() => {
+            let src = std::path::Path::new("/tmp/sccache-install/bin/sccache");
+            if src.exists() {
+                std::fs::copy(src, dest).context("Failed to copy sccache binary")?;
+                Ok(())
+            } else {
+                bail!("cargo install succeeded but binary not found at expected path")
+            }
+        }
+        Ok(s) => {
+            bail!("cargo install sccache failed with exit code: {}", s.code().unwrap_or(-1))
+        }
+        Err(e) => {
+            bail!(
+                "Failed to run cargo install: {e}\n\
+                 Hint: use --local-build to build sccache via cargo install, \
+                 or install sccache manually and ensure it's on PATH"
+            )
+        }
+    }
+}
+
+fn install_local(dest: &std::path::Path) -> Result<()> {
+    let status = std::process::Command::new("cargo")
+        .args(["install", "sccache", "--root", "/tmp/sccache-local-build"])
+        .status()
+        .context("Failed to run cargo install")?;
+
+    if !status.success() {
+        bail!("cargo install sccache failed");
+    }
+
+    let src = std::path::Path::new("/tmp/sccache-local-build/bin/sccache");
+    std::fs::copy(src, dest).context("Failed to copy sccache binary")?;
+    Ok(())
+}
+
+pub fn is_installed() -> bool {
+    which_sccache().is_some()
+}
+
+pub fn which_sccache() -> Option<PathBuf> {
+    if let Ok(paths) = std::env::var("PATH") {
+        for dir in paths.split(':') {
+            let candidate = PathBuf::from(dir).join("sccache");
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
 }
