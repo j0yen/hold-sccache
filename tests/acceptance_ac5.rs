@@ -1,4 +1,4 @@
-//! AC5: `unwire` removes only `RUSTC_WRAPPER`, is idempotent, does not delete cache.
+//! AC5: `unwire` removes only `RUSTC_WRAPPER`, is idempotent, does not delete cache dir.
 
 use std::fs;
 use std::process::Command;
@@ -17,11 +17,12 @@ fn ac5_unwire_only_removes_rustc_wrapper() {
     // Start with a config that has both target-dir and rustc-wrapper
     let initial = "[build]\ntarget-dir = \"/tmp/cargo-target\"\nrustc-wrapper = \"sccache\"\n";
     fs::write(&config_path, initial).expect("write initial config");
-    // Create fake sccache cache dir to verify it's not deleted
-    fs::create_dir_all(&sccache_dir).expect("create sccache dir");
-    fs::write(sccache_dir.join("config"), "# sccache config").expect("write sccache config");
 
-    // Unwire
+    // Create fake sccache dir to verify it is not deleted
+    fs::create_dir_all(&sccache_dir).expect("create sccache dir");
+    fs::write(sccache_dir.join("config"), "21474836480").expect("write sccache config");
+
+    // First unwire
     let status = Command::new(binary())
         .args([
             "unwire",
@@ -48,9 +49,12 @@ fn ac5_unwire_only_removes_rustc_wrapper() {
 
     // Cache dir must not be deleted
     assert!(sccache_dir.exists(), "sccache config dir must not be deleted by unwire");
-    assert!(sccache_dir.join("config").exists(), "sccache config file must not be deleted");
+    assert!(
+        sccache_dir.join("config").exists(),
+        "sccache config file must not be deleted"
+    );
 
-    // Idempotent: second unwire should succeed too
+    // Idempotent: second unwire must succeed and leave config byte-identical
     let status = Command::new(binary())
         .args([
             "unwire",

@@ -37,7 +37,7 @@ fn ac7_status_exits_0_with_all_fields_present() {
     let parsed: serde_json::Value =
         serde_json::from_str(&stdout).expect("status output must be valid JSON");
 
-    // All four fields must be present (values may be false/null for a fresh machine)
+    // All required fields must be present
     assert!(
         parsed.get("installed").is_some(),
         "status JSON missing 'installed' field"
@@ -55,12 +55,13 @@ fn ac7_status_exits_0_with_all_fields_present() {
         "status JSON missing 'max_bytes' field"
     );
 
-    // On a fresh tmpdir: not wired, no max_bytes
+    // On a fresh tmpdir: not wired, max_bytes is null
     assert_eq!(
         parsed["wired"].as_bool(),
         Some(false),
         "should not be wired on fresh config"
     );
+    // max_bytes should be null when no sccache config exists
     assert!(
         parsed["max_bytes"].is_null(),
         "max_bytes should be null when no sccache config exists"

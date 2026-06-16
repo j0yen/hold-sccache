@@ -9,32 +9,24 @@ fn binary() -> std::path::PathBuf {
     env!("CARGO_BIN_EXE_hold-sccache").into()
 }
 
-/// A representative sample of `sccache --show-stats` output (sccache 0.7.x format).
+/// A representative sample of `sccache --show-stats` output.
 const FIXTURE: &str = "\
-Compile requests                      42
-Compile requests executed             42
-Cache hits                            30
-Cache hits (C/C++)                     5
-Cache hits (Rust)                     25
-Cache misses                          12
-Cache misses (Rust)                   12
-Cache timeouts                         0
-Cache read errors                      0
-Forced recaches                        0
-Cache write errors                     0
-Compilation failures                   0
-Cache errors                           0
-Non-cacheable compilations             0
-Non-cacheable calls                    0
-Non-compilation calls                  0
-Unsupported compiler calls             0
-Average cache write               0.003 s
-Average cache read miss           1.027 s
-Average cache read hit            0.004 s
-Failed distributed compilations        0
-Cache location                  Local disk: \"/home/user/.cache/sccache\"
-Cache size                            1.00 GiB
-Max cache size                       20.00 GiB
+Compile requests                      100
+Compile requests executed              98
+Cache hits                             80
+Cache misses                           18
+Cache hits (C/C++)                      0
+Cache hits (Rust)                      80
+Cache misses (Rust)                    18
+Cache timeouts                          0
+Cache read errors                       0
+Forced recaches                         0
+Cache write errors                      0
+Compilations                            0
+Errors                                  0
+Cache location                       Local disk: \"/home/user/.cache/sccache\"
+Cache size                            2.1 GiB
+Max cache size                       20.0 GiB
 ";
 
 #[test]
@@ -43,7 +35,11 @@ fn ac6_stats_from_fixture_has_required_fields() {
     write!(fixture_file, "{FIXTURE}").expect("write fixture");
 
     let out = Command::new(binary())
-        .args(["stats", "--fixture", fixture_file.path().to_str().expect("path")])
+        .args([
+            "stats",
+            "--fixture",
+            fixture_file.path().to_str().expect("path"),
+        ])
         .output()
         .expect("run stats");
 
@@ -62,8 +58,8 @@ fn ac6_stats_from_fixture_has_required_fields() {
     let misses = parsed["cache_misses"].as_u64().expect("cache_misses must be u64");
     let hit_rate = parsed["hit_rate"].as_f64().expect("hit_rate must be f64");
 
-    assert_eq!(hits, 30, "cache_hits should be 30");
-    assert_eq!(misses, 12, "cache_misses should be 12");
+    assert_eq!(hits, 80, "cache_hits should be 80");
+    assert_eq!(misses, 18, "cache_misses should be 18");
 
     // hit_rate must be in [0, 1]
     assert!(
@@ -71,8 +67,8 @@ fn ac6_stats_from_fixture_has_required_fields() {
         "hit_rate must be in [0.0, 1.0], got {hit_rate}"
     );
 
-    // Expected: 30 / 42 ≈ 0.714
-    let expected = 30.0_f64 / 42.0_f64;
+    // Expected: 80 / 98 ≈ 0.816
+    let expected = 80.0_f64 / 98.0_f64;
     assert!(
         (hit_rate - expected).abs() < 1e-6,
         "hit_rate should be {expected:.6}, got {hit_rate:.6}"

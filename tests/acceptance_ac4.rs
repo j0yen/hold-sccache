@@ -1,4 +1,4 @@
-//! AC4: `wire --max-size 20G` records a 20G cap that `status` reads back as `max_size`.
+//! AC4: `wire --max-size 20G` records a 20G cap that `status` reads back as `max_bytes`.
 
 use std::process::Command;
 use tempfile::TempDir;
@@ -30,7 +30,7 @@ fn ac4_wire_max_size_readable_by_status() {
         .expect("run wire");
     assert!(status.success(), "wire should succeed: {status}");
 
-    // Status should read back max_size
+    // Status should read back max_bytes
     let out = Command::new(binary())
         .args([
             "status",
@@ -47,10 +47,13 @@ fn ac4_wire_max_size_readable_by_status() {
     let parsed: serde_json::Value =
         serde_json::from_str(&stdout).expect("status output must be valid JSON");
 
-    let max_bytes = parsed["max_bytes"]
-        .as_u64()
-        .expect("max_bytes must be a u64 in status JSON");
+    // max_bytes must be present and equal to 20GiB
+    assert!(
+        !parsed["max_bytes"].is_null(),
+        "max_bytes should not be null after wire\nstatus: {stdout}"
+    );
 
+    let max_bytes = parsed["max_bytes"].as_u64().expect("max_bytes must be u64");
     assert_eq!(
         max_bytes, GIB_20,
         "max_bytes should be 20GiB ({GIB_20}), got {max_bytes}"

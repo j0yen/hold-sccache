@@ -14,17 +14,19 @@ fn ac3_wire_is_idempotent() {
     let config_path = dir.path().join("config.toml");
     let sccache_dir = dir.path().join("sccache-conf");
 
+    let wire_args = [
+        "wire",
+        "--config",
+        config_path.to_str().expect("path"),
+        "--sccache-config-dir",
+        sccache_dir.to_str().expect("path"),
+        "--max-size",
+        "20G",
+    ];
+
     // First wire
     let status = Command::new(binary())
-        .args([
-            "wire",
-            "--config",
-            config_path.to_str().expect("path"),
-            "--sccache-config-dir",
-            sccache_dir.to_str().expect("path"),
-            "--max-size",
-            "20G",
-        ])
+        .args(wire_args)
         .status()
         .expect("run wire (first)");
     assert!(status.success(), "first wire should succeed: {status}");
@@ -33,15 +35,7 @@ fn ac3_wire_is_idempotent() {
 
     // Second wire — must produce byte-identical output
     let status = Command::new(binary())
-        .args([
-            "wire",
-            "--config",
-            config_path.to_str().expect("path"),
-            "--sccache-config-dir",
-            sccache_dir.to_str().expect("path"),
-            "--max-size",
-            "20G",
-        ])
+        .args(wire_args)
         .status()
         .expect("run wire (second)");
     assert!(status.success(), "second wire should succeed: {status}");
