@@ -1,0 +1,118 @@
+{
+  "schema": "autobuilder.intent_card.v1",
+  "prd_source": "/home/jsy/wintermute/autobuilder/PRD-hold-sccache.md",
+  "root_motivation": "Every local cargo build recompiles the same heavyweight crates (serde, tokio, clap) from scratch across 190+ repos because sccache is absent; wiring a size-capped sccache with zero shared-lock contention eliminates that waste without the parallel-build serialisation problem that a single CARGO_TARGET_DIR imposes.",
+  "user_persona": "Joe Yen, developer on an Arch Linux laptop running up to 30 parallel /build ticks; each tick compiles independent Rust crates and re-encounters the same slow dependency compilation. Needs a persistent, size-capped compilation cache that is safe under parallel cargo invocations.",
+  "unfakeable_metric": {
+    "name": "acceptance_tests_passing_count",
+    "lower_is_better": false,
+    "harness_command": "bash scripts/run-metrics.sh",
+    "target": 8
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC1",
+      "level": "MUST",
+      "description": "`hold-sccache --help` lists `install`, `wire`, `unwire`, `stats`, `status`; exits 0.",
+      "test": "tests/acceptance_ac1.rs"
+    },
+    {
+      "id": "AC2",
+      "level": "MUST",
+      "description": "`wire` merges `RUSTC_WRAPPER = \"sccache\"` under `[build]` in the fleet `config.toml` without removing a pre-existing `target-dir` key (verify both keys present after).",
+      "test": "tests/acceptance_ac2.rs"
+    },
+    {
+      "id": "AC3",
+      "level": "MUST",
+      "description": "`wire` is idempotent: a second run leaves `config.toml` byte-identical.",
+      "test": "tests/acceptance_ac3.rs"
+    },
+    {
+      "id": "AC4",
+      "level": "MUST",
+      "description": "`wire --max-size 20G` records a 20G cap in the sccache config that `status` reads back as `max_size`.",
+      "test": "tests/acceptance_ac4.rs"
+    },
+    {
+      "id": "AC5",
+      "level": "MUST",
+      "description": "`unwire` removes only `RUSTC_WRAPPER` (other `[build]` keys preserved), is idempotent, and does not delete the cache directory.",
+      "test": "tests/acceptance_ac5.rs"
+    },
+    {
+      "id": "AC6",
+      "level": "MUST",
+      "description": "`stats` parses a fixture `sccache --show-stats` output (no live sccache required) into JSON with `cache_hits`, `cache_misses`, and a computed `hit_rate` in `[0,1]`.",
+      "test": "tests/acceptance_ac6.rs"
+    },
+    {
+      "id": "AC7",
+      "level": "MUST",
+      "description": "`status` reports `installed`, `wired`, `cache_bytes`, `max_bytes` and exits 0 whether or not sccache is actually installed (degrades, does not panic).",
+      "test": "tests/acceptance_ac7.rs"
+    },
+    {
+      "id": "AC8",
+      "level": "MUST",
+      "description": "`install` with `--local-build` flag available; without cloud/network reachable it fails with a clear actionable message and non-zero exit, never leaves a half-wired config.",
+      "test": "tests/acceptance_ac8.rs"
+    }
+  ],
+  "scope": [
+    "CLI binary `hold-sccache` with subcommands: install, wire, unwire, stats, status",
+    "Parse/merge TOML config at ~/wintermute/.cargo/config.toml using toml_edit (preserving all existing keys)",
+    "Write sccache size config to ~/.config/sccache/config",
+    "Parse `sccache --show-stats` text output into structured JSON",
+    "Report installation and wiring status without requiring a live sccache daemon"
+  ],
+  "non_goals": [
+    "Does not install sccache from source or compile it locally by default",
+    "Does not manage the sccache daemon lifecycle (start/stop/restart)",
+    "Does not implement the sccache distributed protocol or sccache-dist",
+    "Does not modify any per-repo Cargo.toml or per-repo .cargo/config.toml",
+    "Does not delete or purge the sccache cache contents (only manages configuration)"
+  ],
+  "hard_constraints": {
+    "rust_edition": "2021",
+    "target_kind": "cli",
+    "deny_unsafe": true,
+    "max_deps": 10,
+    "msrv": "1.85",
+    "additional": {}
+  },
+  "five_whys_trace": [
+    {
+      "why": 1,
+      "q": "Why does every cargo build recompile serde/tokio/clap from scratch?",
+      "a": "There is no sccache installed (`which sccache` → not found), so cargo has no compilation cache beyond its own per-target incremental artifacts."
+    },
+    {
+      "why": 2,
+      "q": "Why not just use a single shared CARGO_TARGET_DIR (like hold-anchor)?",
+      "a": "A single target dir serializes parallel builds via cargo's exclusive lock on it; the user runs up to 30 parallel /build ticks, so this creates a convoy effect."
+    },
+    {
+      "why": 3,
+      "q": "Why is sccache the right tool over, say, cargo's built-in caching?",
+      "a": "sccache is a content-addressed compilation cache keyed on compiler inputs (flags + source hash), not the target path; multiple parallel builds with different target/ dirs all share the same cached object files without locking each other."
+    },
+    {
+      "why": 4,
+      "q": "Why does this need a CLI wrapper rather than a simple setup script?",
+      "a": "The TOML merge must be idempotent and must not clobber hold-anchor's target-dir key; stats parsing needs structured JSON output; status must degrade gracefully on a machine where sccache is absent — these are ongoing operational concerns, not a one-shot setup."
+    }
+  ],
+  "ambiguities_resolved": [
+    {
+      "question": "Which cargo config.toml path? ~/wintermute/.cargo/config.toml or ~/.cargo/config.toml?",
+      "resolution": "The PRD says ~/wintermute/.cargo/config.toml (fleet config for the wintermute ecosystem), consistent with hold-anchor's target-dir key."
+    },
+    {
+      "question": "Where does the sccache size cap live?",
+      "resolution": "In ~/.config/sccache/config as a TOML file with [cache.disk] max_size entry, matching sccache's own config format."
+    }
+  ],
+  "created_at": "2026-06-16T00:00:00Z",
+  "intent_slug": "hold-sccache"
+}
