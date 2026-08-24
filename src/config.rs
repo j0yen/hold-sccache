@@ -28,7 +28,7 @@ fn load_or_create_doc(path: &Path) -> Result<DocumentMut> {
     }
 }
 
-pub fn parse_max_size(s: &str) -> Result<u64> {
+pub(crate) fn parse_max_size(s: &str) -> Result<u64> {
     if s.is_empty() {
         anyhow::bail!("empty size string");
     }
@@ -46,7 +46,7 @@ pub fn parse_max_size(s: &str) -> Result<u64> {
 }
 
 /// Wire command with optional path overrides.
-pub fn wire_cmd(max_size: &str, cargo_config: Option<&str>, sccache_config_dir: Option<&str>) -> Result<()> {
+pub(crate) fn wire_cmd(max_size: &str, cargo_config: Option<&str>, sccache_config_dir: Option<&str>) -> Result<()> {
     let cargo_path = match cargo_config {
         Some(p) => PathBuf::from(p),
         None => default_cargo_config_path()?,
@@ -60,7 +60,7 @@ pub fn wire_cmd(max_size: &str, cargo_config: Option<&str>, sccache_config_dir: 
 }
 
 /// Unwire command with optional path override.
-pub fn unwire_cmd(cargo_config: Option<&str>) -> Result<()> {
+pub(crate) fn unwire_cmd(cargo_config: Option<&str>) -> Result<()> {
     let cargo_path = match cargo_config {
         Some(p) => PathBuf::from(p),
         None => default_cargo_config_path()?,
@@ -70,13 +70,13 @@ pub fn unwire_cmd(cargo_config: Option<&str>) -> Result<()> {
 
 /// Check if wired using default paths.
 #[allow(dead_code)]
-pub fn is_wired() -> Result<bool> {
+pub(crate) fn is_wired() -> Result<bool> {
     let cargo_path = default_cargo_config_path()?;
     is_wired_at(&cargo_path)
 }
 
 /// Check if wired at a specific cargo config path.
-pub fn is_wired_at(cargo_path: &Path) -> Result<bool> {
+pub(crate) fn is_wired_at(cargo_path: &Path) -> Result<bool> {
     if !cargo_path.exists() {
         return Ok(false);
     }
@@ -90,14 +90,14 @@ pub fn is_wired_at(cargo_path: &Path) -> Result<bool> {
 
 /// Get max size from default sccache config path.
 #[allow(dead_code)]
-pub fn get_max_size() -> Result<Option<u64>> {
+pub(crate) fn get_max_size() -> Result<Option<u64>> {
     let sccache_dir = default_sccache_config_dir()?;
     let sccache_path = sccache_dir.join("config");
     get_max_size_from(&sccache_path)
 }
 
 /// Get max size from a specific sccache config directory.
-pub fn get_max_size_dir(sccache_config_dir: &Path) -> Result<Option<u64>> {
+pub(crate) fn get_max_size_dir(sccache_config_dir: &Path) -> Result<Option<u64>> {
     let sccache_path = sccache_config_dir.join("config");
     get_max_size_from(&sccache_path)
 }
@@ -172,32 +172,32 @@ fn get_max_size_impl(sccache_path: &Path) -> Result<Option<u64>> {
 }
 
 #[cfg(test)]
-pub fn wire_to(cargo_path: &Path, sccache_path: &Path, max_size: &str) -> Result<()> {
+pub(crate) fn wire_to(cargo_path: &Path, sccache_path: &Path, max_size: &str) -> Result<()> {
     wire_impl(cargo_path, sccache_path, max_size)
 }
 
 #[cfg(not(test))]
-pub fn wire_to(cargo_path: &Path, sccache_path: &Path, max_size: &str) -> Result<()> {
+pub(crate) fn wire_to(cargo_path: &Path, sccache_path: &Path, max_size: &str) -> Result<()> {
     wire_impl(cargo_path, sccache_path, max_size)
 }
 
 #[cfg(test)]
-pub fn unwire_from(cargo_path: &Path) -> Result<()> {
+pub(crate) fn unwire_from(cargo_path: &Path) -> Result<()> {
     unwire_impl(cargo_path)
 }
 
 #[cfg(not(test))]
-pub fn unwire_from(cargo_path: &Path) -> Result<()> {
+pub(crate) fn unwire_from(cargo_path: &Path) -> Result<()> {
     unwire_impl(cargo_path)
 }
 
 #[cfg(test)]
-pub fn get_max_size_from(sccache_path: &Path) -> Result<Option<u64>> {
+pub(crate) fn get_max_size_from(sccache_path: &Path) -> Result<Option<u64>> {
     get_max_size_impl(sccache_path)
 }
 
 #[cfg(not(test))]
-pub fn get_max_size_from(sccache_path: &Path) -> Result<Option<u64>> {
+pub(crate) fn get_max_size_from(sccache_path: &Path) -> Result<Option<u64>> {
     get_max_size_impl(sccache_path)
 }
 

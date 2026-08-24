@@ -1,3 +1,9 @@
+//! hold-sccache — manage a size-capped local sccache installation for the wintermute fleet.
+//!
+//! Installs and wires `sccache` as `RUSTC_WRAPPER` with a configurable size cap,
+//! enabling parallel cargo builds across repos to share a single compilation cache
+//! without the serialization penalty of a shared `CARGO_TARGET_DIR`.
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 

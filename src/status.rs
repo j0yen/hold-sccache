@@ -9,7 +9,7 @@ use crate::install;
 
 /// Status output structure.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Status {
+pub(crate) struct Status {
     /// Whether sccache binary is found on `$PATH`.
     pub installed: bool,
     /// Whether `RUSTC_WRAPPER=sccache` is in the fleet cargo config.
@@ -32,7 +32,7 @@ fn home_dir() -> Result<PathBuf> {
 ///
 /// # Errors
 /// Returns an error if JSON cannot be serialized.
-pub fn show_status(cargo_config: Option<&str>, sccache_config_dir: Option<&str>) -> Result<()> {
+pub(crate) fn show_status(cargo_config: Option<&str>, sccache_config_dir: Option<&str>) -> Result<()> {
     let cargo_path: PathBuf = match cargo_config {
         Some(p) => PathBuf::from(p),
         None => home_dir()?.join("wintermute").join(".cargo").join("config.toml"),

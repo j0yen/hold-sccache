@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
-pub struct SccacheStats {
+pub(crate) struct SccacheStats {
     pub cache_hits: u64,
     pub cache_misses: u64,
     pub hit_rate: f64,
@@ -10,7 +10,7 @@ pub struct SccacheStats {
     pub max_cache_size: u64,
 }
 
-pub fn parse_stats(text: &str) -> SccacheStats {
+pub(crate) fn parse_stats(text: &str) -> SccacheStats {
     let cache_hits = extract_count(text, "Cache hits").unwrap_or(0);
     let cache_misses = extract_count(text, "Cache misses").unwrap_or(0);
     let cache_size = extract_size_bytes(text, "Cache size").unwrap_or(0);
@@ -34,7 +34,7 @@ pub fn parse_stats(text: &str) -> SccacheStats {
     }
 }
 
-pub fn show_stats(fixture: Option<&str>) -> Result<()> {
+pub(crate) fn show_stats(fixture: Option<&str>) -> Result<()> {
     let text = if let Some(path) = fixture {
         std::fs::read_to_string(path)
             .with_context(|| format!("reading fixture {path}"))?

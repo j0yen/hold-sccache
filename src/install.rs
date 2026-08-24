@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use std::path::PathBuf;
 
-pub fn install(local_build: bool, install_dir: Option<&str>) -> Result<()> {
+pub(crate) fn install(local_build: bool, install_dir: Option<&str>) -> Result<()> {
     let dir = resolve_install_dir(install_dir)?;
     std::fs::create_dir_all(&dir).context("Failed to create install directory")?;
 
@@ -74,11 +74,11 @@ fn install_local(dest: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-pub fn is_installed() -> bool {
+pub(crate) fn is_installed() -> bool {
     which_sccache().is_some()
 }
 
-pub fn which_sccache() -> Option<PathBuf> {
+pub(crate) fn which_sccache() -> Option<PathBuf> {
     if let Ok(paths) = std::env::var("PATH") {
         for dir in paths.split(':') {
             let candidate = PathBuf::from(dir).join("sccache");
